@@ -13,7 +13,6 @@ all: otc
 
 otc_obj = otc_main.o otc_root.o
 
-other_obj = ${DOGS_PATH}/DCReco/RecoOV/*.o
 other_obj += ${DOGS_PATH}/DCBase/DC{Message,SimFlag,Detector}.o
 other_obj += ${DOGS_PATH}/DCValidity/*.o
 other_obj += ${DOGS_PATH}/DCGeo/*.o

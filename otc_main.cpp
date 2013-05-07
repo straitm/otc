@@ -10,34 +10,28 @@ using namespace std;
 #include <iostream>
 #include <vector>
 #include "DCRecoOV.hh"
-#include "rover_cont.h"
-#include "rover_root.h"
-#include "rover_progress.cpp"
+#include "otc_cont.h"
+#include "otc_root.h"
+#include "otc_progress.cpp"
 
 static void printhelp()
 {
   cout << 
-  "ROVER, the ROOT I/O Outer Veto Reconstructor\n"
-  "           ^        ^     ^^   ^\n"
-  "Woof!\n"
+  "OTC: The Outer Veto Event Time Corrector\n"
   "\n"
-  "Basic syntax: rover -o [output file] [one or more muon.root files]\n"
+  "Basic syntax: otc -o [output file] [one or more muon.root files]\n"
   "\n"
   "-c: Overwrite existing output file\n"
-  "-l: Use RecoOV's default likelihoods instead of generating them from "
-      "the input\n"
   "-n [number] Process at most this many events\n"
-  "-r: Do not copy OVHitInfoTree to output file\n"
   "-h: This help text\n";
 }
 
 /** Parses the command line and returns the position of the first file
 name (i.e. the first argument not parsed). */
-static int handle_cmdline(int argc, char ** argv, bool & skiplike,
-                          bool & copyhits, bool & clobber, 
+static int handle_cmdline(int argc, char ** argv, bool & clobber,
                           unsigned int & nevents, char * & outfile)
 {
-  const char * opts = "lro:chn:";
+  const char * opts = "o:chn:";
   bool done = false;
  
   while(!done){
@@ -45,12 +39,6 @@ static int handle_cmdline(int argc, char ** argv, bool & skiplike,
     switch(whatwegot = getopt(argc, argv, opts)){
       case -1:
         done = true;
-        break;
-      case 'l':
-        skiplike = true;
-        break;
-      case 'r':
-        copyhits = false;
         break;
       case 'n':
         errno = 0;
@@ -93,7 +81,7 @@ static int handle_cmdline(int argc, char ** argv, bool & skiplike,
   return optind;
 }
 
-/** Somewhere something is causing ROVER to exit silently on a seg fault
+/** Somewhere something is causing OTC to exit silently on a seg fault
 instead of mentioning that it has seg faulted! So I'll explicitly catch
 seg faults and tell the user what happened as is normally expected. I
 have no idea what happens on a SIGBUS if I don't intervene, so I'll
@@ -117,59 +105,41 @@ static void endearly(__attribute__((unused)) int signal)
   _exit(1); // See comment above
 }
 
-static int min(const unsigned int a, const unsigned int b)
+static otc_output_event doit(const OVEventForReco * inevent)
 {
-  return a > b ? b : a;
-}
-
-static vector<float> setup_likes(const bool skiplike,
-                                 const unsigned int nevent,
-                                 TH1 * & h_loglike)
-{
-  if(skiplike) return vector<float>();
-
-  cout << "Building table of likelihoods..." << endl;
-  vector<unsigned int> signal, bground;
-  unsigned int n_likeinit = min(nevent, 1500000);
-
-  initprogressindicator(n_likeinit, 6);
-  // NOTE: Do not attempt to start anywhere but on event zero.
-  // For better performance, we don't allow random seeks.
-  for(unsigned int i = 0; i < n_likeinit; i++){
-    rover_input_event inevent = get_event(i);
-    if(RecoOV_likebuild(signal, bground, *(inevent.event_for_reco))){
-      cerr << "Aaaaahh! Something went wrong in RecoOV_likebuild.\n";
-      exit(1);
-    }
-    progressindicator(i);
+  otc_output_event out;
+  memset(&out, 0, sizeof(out));
+  
+  if(inevent->nhit == 0) return out;
+ 
+  int lasttime = inevent->Time[0];
+  for(unsigned int i = 0; i < inevent->nhit; i++){
+    const int gap = inevent->Time[i] - lasttime;
+    if(gap < 0)
+      printf("Hits %d and %d of %d out of order with times %d and %d\n",
+             i, i-1, inevent->nhit, lasttime, inevent->Time[i]);
+    if(gap > out.clocks_forward) out.clocks_forward = gap;
+    lasttime = inevent->Time[i];
   }
+  printf("%d\n", out.clocks_forward);
 
-  vector<float> likes = RecoOV_likeinit(signal, bground, h_loglike);
-  if(likes.size() == 0)
-    cerr << "Warning: insufficient statistics.  Will fall back on "
-            "default table of likelihoods." << endl;
-  return likes;
+  return out;
 }
 
-static void reconstruct(const unsigned int nevent, 
-                        const vector<float> & likelihoods)
+static void doit_loop(const unsigned int nevent)
 {
-  cout << "Reconstructing..." << endl;
+  cout << "Working..." << endl;
   initprogressindicator(nevent, 6);
 
   // NOTE: Do not attempt to start anywhere but on event zero.
   // For better performance, we don't allow random seeks.
   for(unsigned int i = 0; i < nevent; i++){
-    vector<OVTrackFromReco> tracks;
-    vector<OVXYFromReco> xys;
-    rover_input_event inevent = get_event(i);
-    if(RecoOV(tracks, xys, *(inevent.event_for_reco), likelihoods))
-      cerr << "Aaaahh! RecoOV failed. Not writing event " << i << endl;
-    else  
-      write_event(tracks, xys, inevent.EventID);
-    progressindicator(i);
+    otc_input_event inevent = get_event(i);
+    const otc_output_event out = doit(inevent.event_for_reco);
+    write_event(out);
+    progressindicator(i, "OTC");
   }
-  cout << "All done reconstructing." << endl;
+  cout << "All done working." << endl;
 }
 
 int main(int argc, char ** argv)
@@ -180,23 +150,17 @@ int main(int argc, char ** argv)
   signal(SIGHUP, endearly);
 
   char * outfile = NULL;
-  bool clobber = false, // Whether to overwrite existing output.
-       copyhits = true, // Whether to copy OVHitInfoTree to output file.
-       skiplike = false; // Whether to skip the likelihood loop and 
-                         // pass a zero sized array to RecoOV.
+  bool clobber = false; // Whether to overwrite existing output
+                         
   unsigned int maxevent = 0;
-  const int file1 = handle_cmdline(argc, argv, skiplike, copyhits, 
-                                   clobber, maxevent, outfile);
+  const int file1 = handle_cmdline(argc,argv,clobber,maxevent,outfile);
 
-  unsigned int nevent = root_init(maxevent, copyhits, clobber, outfile, 
-                                  argv + file1, argc - file1);
+  const unsigned int nevent = root_init(maxevent, clobber, outfile, 
+                                        argv + file1, argc - file1);
 
-  TH1 * h_loglike = NULL;
-  vector<float> likelihoods = setup_likes(skiplike, nevent, h_loglike);
+  doit_loop(nevent);
 
-  reconstruct(nevent, likelihoods);
-
-  root_finish(h_loglike);
+  root_finish();
   
   return 0;
 }
