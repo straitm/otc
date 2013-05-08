@@ -19,18 +19,19 @@ using namespace std;
 #include "DCRecoOV.hh" 
 #include "otc_cont.h"
 
-static otc_output_event outevent;
 
 namespace {
-  OVEventForReco inevent;
+  otc_input_event inevent;
+  otc_output_event outevent;
 
   // These are needed to get the ADC counts and clock ticks out of the
   // muon.root files before we cast them to integers and put them in
   // inevent.
   double floatingQ[MAXOVHITS], floatingTime[MAXOVHITS];
-  unsigned int EventID[MAXOVHITS];
-  vector<TTree *> fauxchain;
-  vector<uint64_t> fauxchain_entries;
+  vector<TTree *> hitchain;
+  vector<uint64_t> hitchain_entries;
+  vector<TTree *> recochain;
+  vector<uint64_t> recochain_entries;
   bool inputismc = false;
 
   // Needed for writing the output file
@@ -38,14 +39,13 @@ namespace {
   TTree * recotree;
 }; 
 
-/** Make inevent the eventn'th event in the chain. */
-otc_input_event get_event(const uint64_t current_event)
+static void get_hits(const uint64_t current_event)
 {
   // Go through some contortions for speed. Favor TBranch::GetEntry over
   // TTree::GetEntry, which loops through unused branches on every call.
   // Avoid using TChain to find the TTrees' branches on every call.
   static TBranch * qbr = 0, * timebr = 0, * chbr = 0, 
-                 * statbr = 0, * idbr = 0;
+                 * statbr = 0;
 
   static uint64_t offset = 0, nextbreak = 0;
 
@@ -60,26 +60,24 @@ otc_input_event get_event(const uint64_t current_event)
       curtreeindex = -1;
     }
 
-    curtree = fauxchain[++curtreeindex];
-    nextbreak = fauxchain_entries[curtreeindex+1];
-    offset = fauxchain_entries[curtreeindex];
+    curtree = hitchain[++curtreeindex];
+    nextbreak = hitchain_entries[curtreeindex+1];
+    offset = hitchain_entries[curtreeindex];
 
     curtree->SetMakeClass(1);
     chbr   = curtree->GetBranch("OVHitInfoBranch.fChNum");
-    idbr   = curtree->GetBranch("OVHitInfoBranch.fEventID");
     statbr = curtree->GetBranch("OVHitInfoBranch.fStatus");
     qbr    = curtree->GetBranch("OVHitInfoBranch.fQ");
     timebr = curtree->GetBranch("OVHitInfoBranch.fTime");
     int dummy;
     curtree->SetBranchAddress("OVHitInfoBranch", &dummy);
-    curtree->SetBranchAddress("OVHitInfoBranch.fChNum", inevent.ChNum);
-    curtree->SetBranchAddress("OVHitInfoBranch.fStatus",inevent.Status);
+    curtree->SetBranchAddress("OVHitInfoBranch.fChNum", inevent.hits.ChNum);
+    curtree->SetBranchAddress("OVHitInfoBranch.fStatus",inevent.hits.Status);
     curtree->SetBranchAddress("OVHitInfoBranch.fQ",     floatingQ);
     curtree->SetBranchAddress("OVHitInfoBranch.fTime",  floatingTime);
-    curtree->SetBranchAddress("OVHitInfoBranch.fEventID", EventID);
   }
 
-  uint64_t localentry = current_event - offset;
+  const uint64_t localentry = current_event - offset;
 
   // Instead of getting the number of hits via
   // TTree::SetBranchAddress("OVHitInfoBranch", &n), TTree::GetEntry(i),
@@ -93,41 +91,81 @@ otc_input_event get_event(const uint64_t current_event)
   // and counts that towards the byte count. In any case, I don't know
   // whether I'm using a real feature here, or if this is just something
   // that works by accident.
-  inevent.nhit = chbr->GetEntry(localentry)/sizeof(unsigned int) - 1;
+  inevent.hits.nhit = chbr->GetEntry(localentry)/sizeof(unsigned int) - 1;
 
   // It's awkward to avoid having already filled an array at the first
   // moment that nhit is known. If the number of events is truly huge,
   // it will segfault. However, if it's only a little too large, since
-  // inevent.ChNum comes before several other arrays in OVEventForReco,
+  // inevent.hits.ChNum comes before several other arrays in OVEventForReco,
   // we will usually survive and can abort more cleanly here.
-  if(inevent.nhit > MAXOVHITS){
-    cerr << "Crazy event with " << inevent.nhit << " hits! I just ran "
+  if(inevent.hits.nhit > MAXOVHITS){
+    cerr << "Crazy event with " << inevent.hits.nhit << " hits! I just ran "
             "off the end of some arrays, so I'm bailing out!\n";
     exit(1);
   }
-  else if(inevent.nhit == 0){
-    if(!inputismc)
-      cerr << "Event with no hits. Unexpected in data. Is this Monte "
-              "Carlo missing OVHitThInfoTree? Setting EventID to zero, "
-              "which should be ok.\n";
-    EventID[0] = 0;
+  else if(inevent.hits.nhit == 0 && !inputismc){
+    cerr << "Event with no hits. Unexpected in data. Is this Monte "
+            "Carlo missing OVHitThInfoTree?\n" << endl;
   }
 
-  idbr->GetEntry(localentry);
   statbr->GetEntry(localentry);
 
   qbr->GetEntry(localentry);
-  for(unsigned int i = 0; i < inevent.nhit; i++)
-    inevent.Q[i] = int(floatingQ[i]); 
+  for(unsigned int i = 0; i < inevent.hits.nhit; i++)
+    inevent.hits.Q[i] = int(floatingQ[i]); 
 
   timebr->GetEntry(localentry);
-  for(unsigned int i = 0; i < inevent.nhit; i++)
-    inevent.Time[i] = int(floatingTime[i]);
+  for(unsigned int i = 0; i < inevent.hits.nhit; i++)
+    inevent.hits.Time[i] = int(floatingTime[i]);
+}
 
-  otc_input_event tutorloop;
-  tutorloop.event_for_reco = &inevent;
-  tutorloop.EventID = EventID[0];
-  return tutorloop;
+void get_reco(const uint64_t current_event)
+{
+  static TBranch * nhitbr = 0, * hitsbr = 0;
+
+  static uint64_t offset = 0, nextbreak = 0;
+
+  if(current_event == 0 || current_event == nextbreak){
+    static TTree * curtree = 0;
+    static int curtreeindex = -1;
+    if(current_event == 0){
+      offset = nextbreak = 0;
+      curtreeindex = -1;
+    }
+
+    curtree = recochain[++curtreeindex];
+    nextbreak = recochain_entries[curtreeindex+1];
+    offset = recochain_entries[curtreeindex];
+
+    curtree->SetMakeClass(1);
+    nhitbr = curtree->GetBranch("xy.nhit");
+    hitsbr = curtree->GetBranch("xy.hits[16]");
+    int dummy;
+    curtree->SetBranchAddress("xy", &dummy),
+    curtree->SetBranchAddress("xy.nhit", inevent.xy_nhit),
+    curtree->SetBranchAddress("xy.hits[16]", inevent.xy_hits);
+  }
+
+  const uint64_t localentry = current_event - offset;
+  inevent.nxy = nhitbr->GetEntry(localentry)/sizeof(int) - 1;
+
+  if(inevent.nxy > OTC_MAX_RECO_OV_OBJ){
+    fprintf(stderr, "AAAAahhhh %d XY overlaps!\n", inevent.nxy);
+    exit(1);
+  }
+
+  hitsbr->GetEntry(localentry);
+}
+
+
+/** Make inevent the eventn'th event in the chain. */
+otc_input_event get_event(const uint64_t current_event)
+{
+  memset(&inevent, 0, sizeof(inevent));
+  get_hits(current_event);
+  get_reco(current_event);
+
+  return inevent;
 }
 
 void write_event(const otc_output_event & out)
@@ -136,14 +174,11 @@ void write_event(const otc_output_event & out)
   recotree->Fill();
 }
 
-/** Loads the list of filenames into the global TChain "chain". Arranges
-for reading of the chain through SetBranchAddress and optimizes with
-SetBranchStatus. */
 static uint64_t root_init_input(char ** filenames, const int nfiles)
 {
   TChain mctestchain("OVHitThInfoTree");
 
-  uint64_t totentries = 0;
+  uint64_t totentries_hit = 0, totentries_reco = 0;
 
   for(int i = 0; i < nfiles; i++){
     const char * fname = filenames[i];
@@ -176,12 +211,22 @@ static uint64_t root_init_input(char ** filenames, const int nfiles)
       _exit(1);
     }
 
-    fauxchain_entries.push_back(totentries);
-    fauxchain.push_back(temp);
-    totentries += temp->GetEntries();
+    hitchain_entries.push_back(totentries_hit);
+    hitchain.push_back(temp);
+    totentries_hit += temp->GetEntries();
+
+    temp = dynamic_cast<TTree*>(inputfile->Get("RecoOVInfoTree"));
+    if(!temp){
+      cerr << fname << " does not have a RecoOVInfoTree tree\n";
+      _exit(1);
+    }
+
+    recochain_entries.push_back(totentries_reco);
+    recochain.push_back(temp);
+    totentries_reco += temp->GetEntries();
 
     {
-      int old_geil = gErrorIgnoreLevel;
+      const int old_geil = gErrorIgnoreLevel;
       gErrorIgnoreLevel = kFatal;
       mctestchain.Add(fname);
       if(mctestchain.GetEntries() != 0) inputismc = true;
@@ -191,7 +236,13 @@ static uint64_t root_init_input(char ** filenames, const int nfiles)
     cout << "Loaded " << fname << endl;
   }
 
-  return totentries;
+  if(totentries_hit != totentries_reco){
+    fprintf(stderr, "ERROR: hit tree has %ld entries, but reco tree has %ld\n",
+            totentries_hit, totentries_reco);
+    exit(1);
+  }
+
+  return totentries_hit;
 }
 
 static void root_init_output(const bool clobber, char * outfilename)
@@ -208,7 +259,10 @@ static void root_init_output(const bool clobber, char * outfilename)
   // Name and title same as in old EnDep code
   recotree = new TTree("otc", "OV time correction tree tree tree");
 
-  recotree->Branch("clocks_forward/I", &outevent.clocks_forward);
+  recotree->Branch("recommended_forward/I", &outevent.recommended_forward);
+  recotree->Branch("biggest_forward/I", &outevent.biggest_forward);
+  recotree->Branch("length/I", &outevent.length);
+  recotree->Branch("gap/I", &outevent.gap);
   recotree->Branch("error/O", &outevent.error);
 }
 

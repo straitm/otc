@@ -14,6 +14,11 @@ using namespace std;
 #include "otc_root.h"
 #include "otc_progress.cpp"
 
+// The OV Event Builder requires that within one EnDep (i.e. event) at
+// least two hits are strictly larger than this threshold. I'm not clear
+// on whether they have to be part of the same muon-like double.
+static const int EB_THRESHOLD = 73;
+
 static void printhelp()
 {
   cout << 
@@ -105,23 +110,119 @@ static void endearly(__attribute__((unused)) int signal)
   _exit(1); // See comment above
 }
 
-static otc_output_event doit(const OVEventForReco * inevent)
+static void do_hits_stuff(otc_output_event & out,
+                          const OVEventForReco & hits)
+{
+  // Should not happen for data, but can happen in Monte Carlo
+  if(hits.nhit == 0) return;
+ 
+  int lasttime = hits.Time[0];
+  int biggest = 0;
+  for(unsigned int i = 0; i < hits.nhit; i++){
+    const int diff = hits.Time[i] - lasttime;
+    if(diff < 0){
+      printf("Hits %d and %d of %d out of order with times %d and %d\n",
+             i, i-1, hits.nhit, lasttime, hits.Time[i]);
+      out.error = true;
+    }
+    if(diff - 1 > out.gap) out.gap = diff - 1;
+    lasttime = hits.Time[i];
+
+    if(hits.Q[i] > biggest){
+      biggest = hits.Q[i];
+      out.biggest_forward = hits.Time[i] - hits.Time[0];
+    }
+  }
+  out.length = hits.Time[hits.nhit-1] - hits.Time[0] + 1;
+}
+
+/*
+Find the best estimate of the time difference between the first hit and
+the *muon* hit.
+
+The scenario at hand is where an accidental gamma hits the OV right
+before a muon. We want to reject the hits from that gamma.
+
+For now, I will claim that I only care about events with XY overlaps.
+
+First, we will discard any hits that are not part of an XY overlap.
+
+Of the remaining XY overlaps, there are three possibilities:
+
+1) Formed by the muon or muon shower fragments.
+
+2) The gamma hit one of the same modules as the muon hit. It hit before
+and made the module dead to the muon. The XY overlap has one module from
+the muon and the other from the gamma. The true muon position is lost.
+
+3) The gamma hit an adjacent module and formed a separate XY overlap.
+Another XY overlap gives the correct muon position.
+
+Since case #1 can validly occur with the hits one clock cycle apart (and
+the top one need not be earlier -- the fiber length can easily cancel
+that effect), we cannot reject an XY overlap for having hits in two
+consecutive clock cycles. Even having a gap of one cycle is possible if
+the muon hits at the extreme far end of one module and the extreme near
+end of the other. Maybe we really need to look up where the XY overlap
+is... Still, having a gap of two cycles is not realistic.
+
+Supposing that there is exactly one additional accidental gamma, it
+should be sufficient to simply take the time of the third hit in the
+event.
+
+But what if there are multiple correlated gammas? One can imagine a
+decay cascade from junk in or near the OV modules. Two such gammas
+could even form an XY overlap by themselves. You might think, well, ok,
+but then this is just equivalent to the fact that sometimes one much
+passes through right before another. Except that this gamma-gamma XY
+overlap will typically only be visible --- post-event builder --- if it
+is attached to a following muon, and so form an event-builder shoulder
+anyway.
+
+(Come to think about it, do unlucky muons with low ADC counts form an
+event builder shoulder? Come back to this.)
+
+The solution to a gamma-gamma event that does *not* form an XY overlap
+by itself is to discard hits outside of XY overlaps, and then take the
+third hit time (to protect against one of the gammas being in case #2 or
+#3 above).
+
+But to protect against gamma-gamma events that *do* form XY overlaps, we
+have to switch course. What if we accept only the highest-likelihood XY
+overlap and take the time of its third hit? I think this covers all the
+cases. Of course, it shifts the time later for a large class of events
+with no accidental gamma at all, but it does so in a consistent way, and
+I think that's ok.
+
+A more extreme solution would be to take the *last* hit time of the
+event. I don't think this is a good idea. It would "protect" against
+all the cases above, but also causes accidental gammas *after* the muon
+make the OV event late. I suppose, though, it is the most conservative
+approach if one wishes to discard any slightly suspicious event. The
+event length variable that I am saving will let this definition be used.
+*/
+static void do_xy_stuff(otc_output_event & out, 
+                        const otc_input_event & inevent)
+{
+  if(inevent.nxy == 0) return;
+
+  if(inevent.xy_nhit[0] < 3){
+    printf("Weird XY overlap with only %d hits!\n", inevent.xy_nhit[0]);
+    return;
+  }
+
+  out.recommended_forward = inevent.hits.Time[inevent.xy_hits[0][2]]
+                           -inevent.hits.Time[0];
+}
+
+static otc_output_event doit(const otc_input_event & inevent)
 {
   otc_output_event out;
   memset(&out, 0, sizeof(out));
   
-  if(inevent->nhit == 0) return out;
- 
-  int lasttime = inevent->Time[0];
-  for(unsigned int i = 0; i < inevent->nhit; i++){
-    const int gap = inevent->Time[i] - lasttime;
-    if(gap < 0)
-      printf("Hits %d and %d of %d out of order with times %d and %d\n",
-             i, i-1, inevent->nhit, lasttime, inevent->Time[i]);
-    if(gap > out.clocks_forward) out.clocks_forward = gap;
-    lasttime = inevent->Time[i];
-  }
-  printf("%d\n", out.clocks_forward);
+  do_hits_stuff(out, inevent.hits);
+
+  do_xy_stuff(out, inevent); 
 
   return out;
 }
@@ -134,8 +235,8 @@ static void doit_loop(const unsigned int nevent)
   // NOTE: Do not attempt to start anywhere but on event zero.
   // For better performance, we don't allow random seeks.
   for(unsigned int i = 0; i < nevent; i++){
-    otc_input_event inevent = get_event(i);
-    const otc_output_event out = doit(inevent.event_for_reco);
+    const otc_input_event inevent = get_event(i);
+    const otc_output_event out = doit(inevent);
     write_event(out);
     progressindicator(i, "OTC");
   }
