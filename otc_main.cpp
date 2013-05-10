@@ -7,7 +7,6 @@ using namespace std;
 
 #include <signal.h>
 #include <errno.h>
-#include <iostream>
 #include <vector>
 #include "DCRecoOV.hh"
 #include "otc_cont.h"
@@ -21,14 +20,14 @@ static const int EB_THRESHOLD = 73;
 
 static void printhelp()
 {
-  cout << 
+  printf(
   "OTC: The Outer Veto Event Time Corrector\n"
   "\n"
   "Basic syntax: otc -o [output file] [one or more muon.root files]\n"
   "\n"
   "-c: Overwrite existing output file\n"
   "-n [number] Process at most this many events\n"
-  "-h: This help text\n";
+  "-h: This help text\n");
 }
 
 /** Parses the command line and returns the position of the first file
@@ -36,7 +35,7 @@ name (i.e. the first argument not parsed). */
 static int handle_cmdline(int argc, char ** argv, bool & clobber,
                           unsigned int & nevents, char * & outfile)
 {
-  const char * opts = "o:chn:";
+  const char * const opts = "o:chn:";
   bool done = false;
  
   while(!done){
@@ -73,13 +72,13 @@ static int handle_cmdline(int argc, char ** argv, bool & clobber,
   }  
 
   if(!outfile){
-    cerr << "You must give an output file name with -o\n";
+    fprintf(stderr, "You must give an output file name with -o\n");
     printhelp();
     exit(1);
   }
 
   if(argc <= optind){
-    cerr << "Please give at least one muon.root file.\n\n";
+    fprintf(stderr, "Please give at least one muon.root file.\n\n");
     printhelp();
     exit(1);
   }
@@ -94,7 +93,7 @@ catch that too, just because it's something that happens occasionally.
 */
 static void on_segv_or_bus(const int signal)
 {
-  cerr << "Got " << (signal==SIGSEGV? "SEGV": "BUS") << ".  Exiting.\n";
+  fprintf(stderr, "Got %s. Exiting.\n", signal==SIGSEGV? "SEGV": "BUS");
   // Use _exit() instead of exit() to avoid calling atexit() functions
   // and/or other signal handlers. Something, presumably in the bowels
   // of ROOT, must be doing one of these since a call to exit() can take
@@ -106,7 +105,7 @@ static void on_segv_or_bus(const int signal)
 happens. */
 static void endearly(__attribute__((unused)) int signal)
 {
-  cerr << "Got Ctrl-C or similar.  Exiting.\n";
+  fprintf(stderr, "Got Ctrl-C or similar.  Exiting.\n");
   _exit(1); // See comment above
 }
 
@@ -192,7 +191,12 @@ have to switch course. What if we accept only the highest-likelihood XY
 overlap and take the time of its third hit? I think this covers all the
 cases. Of course, it shifts the time later for a large class of events
 with no accidental gamma at all, but it does so in a consistent way, and
-I think that's ok.
+I think that's ok.  
+
+No no, it's not good to take the highest-likelihood XY overlap, because
+in case #2, the likelihood will be knocked way down by the gamma. Better
+to sort XY overlaps by the sum of the ADCs in the later module and, of
+the largest of these, take the time of the later module.
 
 A more extreme solution would be to take the *last* hit time of the
 event. I don't think this is a good idea. It would "protect" against
@@ -206,12 +210,28 @@ static void do_xy_stuff(otc_output_event & out,
 {
   if(inevent.nxy == 0) return;
 
-  if(inevent.xy_nhit[0] < 3){
-    printf("Weird XY overlap with only %d hits!\n", inevent.xy_nhit[0]);
-    return;
+  int besti = -1;
+  int besta = -1;
+  int bestadc = -9999;
+  for(int i = 0; i < inevent.nxy; i++){
+    if(inevent.xy_nhit[i] < 4) continue;
+    if(inevent.xy_nhit[i] > 4)
+      printf("XY with %d hits, unexpected!\n", inevent.xy_nhit[i]);
+
+    const int a = (inevent.hits.Time[inevent.xy_hits[i][2]] >
+                   inevent.hits.Time[inevent.xy_hits[i][0]])*2;
+ 
+    const int adcsum = inevent.hits.Q[inevent.xy_hits[i][a]]
+                     + inevent.hits.Q[inevent.xy_hits[i][a+1]];
+
+    if(adcsum > bestadc){
+      bestadc = adcsum;
+      besti = i;
+      besta = a;
+    }
   }
 
-  out.recommended_forward = inevent.hits.Time[inevent.xy_hits[0][2]]
+  out.recommended_forward = inevent.hits.Time[inevent.xy_hits[besti][besta]]
                            -inevent.hits.Time[0];
 }
 
@@ -222,6 +242,7 @@ static otc_output_event doit(const otc_input_event & inevent)
   
   do_hits_stuff(out, inevent.hits);
 
+  if(out.length == 4)
   do_xy_stuff(out, inevent); 
 
   return out;
@@ -229,18 +250,15 @@ static otc_output_event doit(const otc_input_event & inevent)
 
 static void doit_loop(const unsigned int nevent)
 {
-  cout << "Working..." << endl;
-  initprogressindicator(nevent, 6);
+  printf("Working...\n");
+  initprogressindicator(nevent, 4);
 
   // NOTE: Do not attempt to start anywhere but on event zero.
   // For better performance, we don't allow random seeks.
-  for(unsigned int i = 0; i < nevent; i++){
-    const otc_input_event inevent = get_event(i);
-    const otc_output_event out = doit(inevent);
-    write_event(out);
+  for(unsigned int i = 0; i < nevent; i++)
+    write_event(doit(get_event(i))), // never do this
     progressindicator(i, "OTC");
-  }
-  cout << "All done working." << endl;
+  printf("All done working.\n");
 }
 
 int main(int argc, char ** argv)

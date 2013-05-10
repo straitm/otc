@@ -17,7 +17,6 @@ struct otc_input_event {
 
   // the hit indices 
   int xy_hits[OTC_MAX_RECO_OV_OBJ][OTC_MAXXYHIT];
-
 };
 
 struct otc_output_event {

@@ -10,7 +10,6 @@ using namespace std;
 #endif
 #include <string.h>
 #include <vector>
-#include <iostream>
 #include "TSystem.h"
 #include "TChain.h"
 #include "TFile.h"
@@ -99,13 +98,14 @@ static void get_hits(const uint64_t current_event)
   // inevent.hits.ChNum comes before several other arrays in OVEventForReco,
   // we will usually survive and can abort more cleanly here.
   if(inevent.hits.nhit > MAXOVHITS){
-    cerr << "Crazy event with " << inevent.hits.nhit << " hits! I just ran "
-            "off the end of some arrays, so I'm bailing out!\n";
+    fprintf(stderr, "Crazy event with %d hits! I just ran "
+            "off the end of some arrays, so I'm bailing out!\n",
+             inevent.hits.nhit);
     exit(1);
   }
   else if(inevent.hits.nhit == 0 && !inputismc){
-    cerr << "Event with no hits. Unexpected in data. Is this Monte "
-            "Carlo missing OVHitThInfoTree?\n" << endl;
+    fprintf(stderr, "Event with no hits. Unexpected in data. Is this Monte "
+            "Carlo missing OVHitThInfoTree?\n");
   }
 
   statbr->GetEntry(localentry);
@@ -174,40 +174,37 @@ void write_event(const otc_output_event & out)
   recotree->Fill();
 }
 
-static uint64_t root_init_input(char ** filenames, const int nfiles)
+static uint64_t root_init_input(const char * const * const filenames,
+                                const int nfiles)
 {
   TChain mctestchain("OVHitThInfoTree");
 
   uint64_t totentries_hit = 0, totentries_reco = 0;
 
   for(int i = 0; i < nfiles; i++){
-    const char * fname = filenames[i];
+    const char * const fname = filenames[i];
     if(strlen(fname) < 9){
-      cerr << fname << " doesn't have the form *muon*.root\n";
+      fprintf(stderr, "%s doesn't have the form *muon*.root\n", fname);
       _exit(1);
     }
     if(!strstr(fname, "muon")){
-      cerr << "File name " << fname << " does not contain \"muon\"\n";
+      fprintf(stderr, "File name %s does not contain \"muon\"\n", fname);
       _exit(1);
     }
     if(strstr(fname, ".root") != fname + strlen(fname) - 5){
-      cerr << "File name " << fname << " does not end in \".root\"\n";
-      _exit(1);
-    }
-    if(gSystem->AccessPathName(fname)!=0) {
-      cerr << fname << " does not exist, or you can't read it\n";
+      fprintf(stderr, "File name %s does not end in \".root\"\n", fname);
       _exit(1);
     }
 
     TFile * inputfile = TFile::Open(fname, "read");
     if(!inputfile || inputfile->IsZombie()){
-      cerr << fname << " became a zombie when ROOT tried to read it.\n";
+      fprintf(stderr, "%s became a zombie when ROOT tried to read it.\n",fname);
       _exit(1);
     }
 
     TTree * temp=dynamic_cast<TTree*>(inputfile->Get("OVHitInfoTree"));
     if(!temp){
-      cerr << fname << " does not have an OVHitInfoTree tree\n";
+      fprintf(stderr, "%s does not have an OVHitInfoTree tree\n", fname);
       _exit(1);
     }
 
@@ -217,7 +214,7 @@ static uint64_t root_init_input(char ** filenames, const int nfiles)
 
     temp = dynamic_cast<TTree*>(inputfile->Get("RecoOVInfoTree"));
     if(!temp){
-      cerr << fname << " does not have a RecoOVInfoTree tree\n";
+      fprintf(stderr, "%s does not have a RecoOVInfoTree tree\n", fname);
       _exit(1);
     }
 
@@ -233,7 +230,7 @@ static uint64_t root_init_input(char ** filenames, const int nfiles)
       gErrorIgnoreLevel = old_geil; 
     }
 
-    cout << "Loaded " << fname << endl;
+    printf("Loaded %s\n", fname);
   }
 
   if(totentries_hit != totentries_reco){
@@ -245,25 +242,25 @@ static uint64_t root_init_input(char ** filenames, const int nfiles)
   return totentries_hit;
 }
 
-static void root_init_output(const bool clobber, char * outfilename)
+static void root_init_output(const bool clobber,
+                             const char * const outfilename)
 {
   outfile = new TFile(outfilename, clobber?"RECREATE":"CREATE");
 
   if(!outfile || outfile->IsZombie()){
-    cerr << "Could not open output file " << outfilename
-         << ".  Does it already exist?  "
-            "Use -c to overwrite existing output.\n";
+    fprintf(stderr, "Could not open output file %s. Does it already exist?  "
+            "Use -c to overwrite existing output.\n", outfilename);
     exit(1);
   }
 
   // Name and title same as in old EnDep code
   recotree = new TTree("otc", "OV time correction tree tree tree");
 
-  recotree->Branch("recommended_forward/I", &outevent.recommended_forward);
-  recotree->Branch("biggest_forward/I", &outevent.biggest_forward);
-  recotree->Branch("length/I", &outevent.length);
-  recotree->Branch("gap/I", &outevent.gap);
-  recotree->Branch("error/O", &outevent.error);
+  recotree->Branch("recommended_forward", &outevent.recommended_forward);
+  recotree->Branch("biggest_forward", &outevent.biggest_forward);
+  recotree->Branch("length", &outevent.length);
+  recotree->Branch("gap", &outevent.gap);
+  recotree->Branch("error", &outevent.error);
 }
 
 void root_finish()
@@ -276,7 +273,8 @@ void root_finish()
 
 /* Sets up the ROOT input and output. */
 uint64_t root_init(const uint64_t maxevent, const bool clobber,
-                   char * outfilenm, char ** infiles, const int nfiles)
+                   const char * const outfilenm,
+                   const char * const * const infiles, const int nfiles)
 {
   // ROOT warnings are usually not helpful to the user, so we'll try
   // to catch warning conditions ourselves.  However, I know of at
