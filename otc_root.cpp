@@ -244,7 +244,7 @@ static uint64_t root_init_input(const char * const * const filenames,
 static void root_init_output(const bool clobber,
                              const char * const outfilename)
 {
-  outfile = new TFile(outfilename, clobber?"RECREATE":"CREATE");
+  outfile = new TFile(outfilename, clobber?"RECREATE":"CREATE","",9);
 
   if(!outfile || outfile->IsZombie()){
     fprintf(stderr, "Could not open output file %s. Does it already exist?  "
@@ -256,10 +256,10 @@ static void root_init_output(const bool clobber,
   recotree = new TTree("otc", "OV time correction tree tree tree");
 
   recotree->Branch("length", &outevent.length);
-  recotree->Branch("error", &outevent.error);
   recotree->Branch("lastx", &outevent.lastx);
   recotree->Branch("lasty", &outevent.lasty);
   recotree->Branch("lastz", &outevent.lastz);
+  recotree->Branch("error", &outevent.error);
 }
 
 void root_finish()

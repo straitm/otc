@@ -135,9 +135,9 @@ static void lastpos(otc_output_event & __restrict__ out,
     const double dist = sqrt(sc.x*sc.x + sc.y*sc.y);
     if(dist > farthest){
       farthest = dist;
-      out.lastx = sc.x;
-      out.lasty = sc.y;
-      out.lastz = sc.z;
+      out.lastx = int(sc.x);
+      out.lasty = int(sc.y);
+      out.lastz = int(sc.z);
     }
 
     if(hits.Status[i] != 2){
@@ -145,9 +145,9 @@ static void lastpos(otc_output_event & __restrict__ out,
       const double dist = sqrt(sc.x*sc.x + sc.y*sc.y);
       if(dist > farthest){
         farthest = dist;
-        out.lastx = sc.x;
-        out.lasty = sc.y;
-        out.lastz = sc.z;
+        out.lastx = int(sc.x);
+        out.lasty = int(sc.y);
+        out.lastz = int(sc.z);
       }
     }
   }
@@ -176,7 +176,10 @@ static otc_output_event doit(const otc_input_event & inevent)
   otc_output_event out;
   memset(&out, 0, sizeof(out));
   
-  do_hits_stuff(out, inevent.hits);
+  // I am only going to use events with XY overlaps and it saves
+  // oodles of disk space not to store the answers for events
+  // without
+  if(inevent.nxy) do_hits_stuff(out, inevent.hits);
 
   return out;
 }
