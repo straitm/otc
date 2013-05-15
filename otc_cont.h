@@ -64,22 +64,11 @@ struct otc_output_event {
   // strip farthest from the chimney
   float lastx, lasty, lastz;
 
-  // How many 16ns clock ticks OTC thinks we should move this event
-  // forward to reduce the effect of accidentals.
-  int recommended_forward;
-
-  // The largest gap between hits.  This is an exclusive gap, i.e.
-  // |   HIT   | NOTHING |   HIT   | --> 1
-  int gap;
-
   // The total length of the event in clock cycles. This length is
   // inclusive, such that an event with all the hits in the same cycle
   // has length 1.
   int length;
 
-  // Number of clock cycles after the first hit of the biggest hit
-  int biggest_forward;
- 
   // If there was some sort of pathology in the data or the processing
   // thereof.  Currently this means that there were un-time-ordered
   // hits in the input.

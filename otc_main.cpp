@@ -111,7 +111,7 @@ static cart makecart(const double x, const double y, const double z)
 
 static cart modcenter(const unsigned int ch,
                       const unsigned short status,
-                      const int uselowiftrig)
+                      const bool uselowiftrig)
 {
   // If this is not an ADC hit, assume it is a trigger box hit (it is)
   const zhit hit(ch, 0, 0, status == 2? normal:
@@ -122,14 +122,27 @@ static cart modcenter(const unsigned int ch,
                   strip.z);
 }
 
-static void lastpos(otc_output_event & out, const OVEventForReco & hits)
+static void lastpos(otc_output_event & __restrict__ out,
+                    const OVEventForReco & __restrict__ hits)
 {
   double farthest = 0;
-  for(unsigned int i = 0; i < hits.nhit; i++){
-    if(hits.Time[i] != hits.Time[hits.nhit-1]) continue;
 
-    for(int s = 0; s < 1+(hits.Status[i] != 2); s++){
-      const cart mc = modcenter(hits.ChNum[i], hits.Status[i], s);
+  unsigned int i = 0;
+  while(hits.Time[i] != hits.Time[hits.nhit-1]) i++;
+  i--;
+
+  for(; i < hits.nhit; i++){
+    const cart mc = modcenter(hits.ChNum[i], hits.Status[i], false);
+    const double dist = sqrt(mc.x*mc.x + mc.y*mc.y);
+    if(dist > farthest){
+      farthest = dist;
+      out.lastx = mc.x;
+      out.lasty = mc.y;
+      out.lastz = mc.z;
+    }
+
+    if(hits.Status[i] != 2){
+      const cart mc = modcenter(hits.ChNum[i], hits.Status[i], true);
       const double dist = sqrt(mc.x*mc.x + mc.y*mc.y);
       if(dist > farthest){
         farthest = dist;
@@ -141,133 +154,22 @@ static void lastpos(otc_output_event & out, const OVEventForReco & hits)
   }
 }
 
-
-static void do_hits_stuff(otc_output_event & out,
-                          const OVEventForReco & hits)
+static void do_hits_stuff(otc_output_event & __restrict__ out,
+                          const OVEventForReco & __restrict__ hits)
 {
   // Should not happen for data, but can happen in Monte Carlo
   if(hits.nhit == 0) return;
  
-  int lasttime = hits.Time[0];
-  int biggest = 0;
-  for(unsigned int i = 0; i < hits.nhit; i++){
-    const int diff = hits.Time[i] - lasttime;
-    if(diff < 0){
+  for(unsigned int i = 1; i < hits.nhit; i++){
+    if(hits.Time[i] < hits.Time[i-1]){
       printf("Hits %d and %d of %d out of order with times %d and %d\n",
-             i, i-1, hits.nhit, lasttime, hits.Time[i]);
+             i, i-1, hits.nhit, hits.Time[i-1], hits.Time[i]);
       out.error = true;
-    }
-    if(diff - 1 > out.gap) out.gap = diff - 1;
-    lasttime = hits.Time[i];
-
-    if(hits.Q[i] > biggest){
-      biggest = hits.Q[i];
-      out.biggest_forward = hits.Time[i] - hits.Time[0];
     }
   }
   out.length = hits.Time[hits.nhit-1] - hits.Time[0] + 1;
 
   lastpos(out, hits);
-}
-
-/*
-Find the best estimate of the time difference between the first hit and
-the *muon* hit.
-
-The scenario at hand is where an accidental gamma hits the OV right
-before a muon. We want to reject the hits from that gamma.
-
-For now, I will claim that I only care about events with XY overlaps.
-
-First, we will discard any hits that are not part of an XY overlap.
-
-Of the remaining XY overlaps, there are three possibilities:
-
-1) Formed by the muon or muon shower fragments.
-
-2) The gamma hit one of the same modules as the muon hit. It hit before
-and made the module dead to the muon. The XY overlap has one module from
-the muon and the other from the gamma. The true muon position is lost.
-
-3) The gamma hit an adjacent module and formed a separate XY overlap.
-Another XY overlap gives the correct muon position.
-
-Since case #1 can validly occur with the hits one clock cycle apart (and
-the top one need not be earlier -- the fiber length can easily cancel
-that effect), we cannot reject an XY overlap for having hits in two
-consecutive clock cycles. Even having a gap of one cycle is possible if
-the muon hits at the extreme far end of one module and the extreme near
-end of the other. Maybe we really need to look up where the XY overlap
-is... Still, having a gap of two cycles is not realistic.
-
-Supposing that there is exactly one additional accidental gamma, it
-should be sufficient to simply take the time of the third hit in the
-event.
-
-But what if there are multiple correlated gammas? One can imagine a
-decay cascade from junk in or near the OV modules. Two such gammas
-could even form an XY overlap by themselves. You might think, well, ok,
-but then this is just equivalent to the fact that sometimes one much
-passes through right before another. Except that this gamma-gamma XY
-overlap will typically only be visible --- post-event builder --- if it
-is attached to a following muon, and so form an event-builder shoulder
-anyway.
-
-(Come to think about it, do unlucky muons with low ADC counts form an
-event builder shoulder? Come back to this.)
-
-The solution to a gamma-gamma event that does *not* form an XY overlap
-by itself is to discard hits outside of XY overlaps, and then take the
-third hit time (to protect against one of the gammas being in case #2 or
-#3 above).
-
-But to protect against gamma-gamma events that *do* form XY overlaps, we
-have to switch course. What if we accept only the highest-likelihood XY
-overlap and take the time of its third hit? I think this covers all the
-cases. Of course, it shifts the time later for a large class of events
-with no accidental gamma at all, but it does so in a consistent way, and
-I think that's ok.  
-
-No no, it's not good to take the highest-likelihood XY overlap, because
-in case #2, the likelihood will be knocked way down by the gamma. Better
-to sort XY overlaps by the sum of the ADCs in the later module and, of
-the largest of these, take the time of the later module.
-
-A more extreme solution would be to take the *last* hit time of the
-event. I don't think this is a good idea. It would "protect" against
-all the cases above, but also causes accidental gammas *after* the muon
-make the OV event late. I suppose, though, it is the most conservative
-approach if one wishes to discard any slightly suspicious event. The
-event length variable that I am saving will let this definition be used.
-*/
-static void do_xy_stuff(otc_output_event & out, 
-                        const otc_input_event & inevent)
-{
-  if(inevent.nxy == 0) return;
-
-  int besti = -1;
-  int besta = -1;
-  int bestadc = -9999;
-  for(int i = 0; i < inevent.nxy; i++){
-    if(inevent.xy_nhit[i] < 4) continue;
-    if(inevent.xy_nhit[i] > 4)
-      printf("XY with %d hits, unexpected!\n", inevent.xy_nhit[i]);
-
-    const int a = (inevent.hits.Time[inevent.xy_hits[i][2]] >
-                   inevent.hits.Time[inevent.xy_hits[i][0]])*2;
- 
-    const int adcsum = inevent.hits.Q[inevent.xy_hits[i][a]]
-                     + inevent.hits.Q[inevent.xy_hits[i][a+1]];
-
-    if(adcsum > bestadc){
-      bestadc = adcsum;
-      besti = i;
-      besta = a;
-    }
-  }
-
-  out.recommended_forward = inevent.hits.Time[inevent.xy_hits[besti][besta]]
-                           -inevent.hits.Time[0];
 }
 
 static otc_output_event doit(const otc_input_event & inevent)
@@ -276,9 +178,6 @@ static otc_output_event doit(const otc_input_event & inevent)
   memset(&out, 0, sizeof(out));
   
   do_hits_stuff(out, inevent.hits);
-
-  if(out.length == 4)
-  do_xy_stuff(out, inevent); 
 
   return out;
 }

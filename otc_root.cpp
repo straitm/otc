@@ -255,10 +255,7 @@ static void root_init_output(const bool clobber,
   // Name and title same as in old EnDep code
   recotree = new TTree("otc", "OV time correction tree tree tree");
 
-  recotree->Branch("recommended_forward", &outevent.recommended_forward);
-  recotree->Branch("biggest_forward", &outevent.biggest_forward);
   recotree->Branch("length", &outevent.length);
-  recotree->Branch("gap", &outevent.gap);
   recotree->Branch("error", &outevent.error);
   recotree->Branch("lastx", &outevent.lastx);
   recotree->Branch("lasty", &outevent.lasty);

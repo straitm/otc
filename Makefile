@@ -2,7 +2,7 @@
 
 CXX=g++
 
-CPPFLAGS=-Wall -Wextra -O2
+CPPFLAGS=-Wall -Wextra -O3 -ffast-math -fPIC -fno-threadsafe-statics
 LINKFLAGS=$(CPPFLAGS)
 
 ROOTINC = `root-config --cflags` -I${DOGS_PATH}/DCDisplay/ZOE
