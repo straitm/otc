@@ -1,5 +1,9 @@
 const unsigned int MAXOVHITS = 64*60;
 
+struct cart{
+  double x, y, z;
+};
+
 struct OVEventForReco {
   /// Number of hits in this event
   unsigned int nhit;
@@ -55,6 +59,10 @@ struct otc_input_event {
 };
 
 struct otc_output_event {
+
+  // Out of strips hit in the last clock cycle, the coordinates of the
+  // strip farthest from the chimney
+  float lastx, lasty, lastz;
 
   // How many 16ns clock ticks OTC thinks we should move this event
   // forward to reduce the effect of accidentals.

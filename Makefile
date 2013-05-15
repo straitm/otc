@@ -5,12 +5,15 @@ CXX=g++
 CPPFLAGS=-Wall -Wextra -O2
 LINKFLAGS=$(CPPFLAGS)
 
-ROOTINC = `root-config --cflags` 
+ROOTINC = `root-config --cflags` -I${DOGS_PATH}/DCDisplay/ZOE
+
 LIB += -lm `root-config --libs`
 
 all: otc
 
 otc_obj = otc_main.o otc_root.o
+
+other_obj = ${DOGS_PATH}/DCDisplay/ZOE/z{geo,cont}.o
 
 otc: $(otc_obj) 
 	@echo Linking otc

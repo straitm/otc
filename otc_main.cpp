@@ -12,10 +12,8 @@ using namespace std;
 #include "otc_root.h"
 #include "otc_progress.cpp"
 
-// The OV Event Builder requires that within one EnDep (i.e. event) at
-// least two hits are strictly larger than this threshold. I'm not clear
-// on whether they have to be part of the same muon-like double.
-static const int EB_THRESHOLD = 73;
+#include "zcont.h"
+extern zdrawstrip ** striplinesabs;
 
 static void printhelp()
 {
@@ -84,12 +82,6 @@ static int handle_cmdline(int argc, char ** argv, bool & clobber,
   return optind;
 }
 
-/** Somewhere something is causing OTC to exit silently on a seg fault
-instead of mentioning that it has seg faulted! So I'll explicitly catch
-seg faults and tell the user what happened as is normally expected. I
-have no idea what happens on a SIGBUS if I don't intervene, so I'll
-catch that too, just because it's something that happens occasionally.
-*/
 static void on_segv_or_bus(const int signal)
 {
   fprintf(stderr, "Got %s. Exiting.\n", signal==SIGSEGV? "SEGV": "BUS");
@@ -107,6 +99,48 @@ static void endearly(__attribute__((unused)) int signal)
   fprintf(stderr, "Got Ctrl-C or similar.  Exiting.\n");
   _exit(1); // See comment above
 }
+
+static cart makecart(const double x, const double y, const double z)
+{
+  cart a;
+  a.x = x;
+  a.y = y;
+  a.z = z;
+  return a;
+}
+
+static cart modcenter(const unsigned int ch,
+                      const unsigned short status,
+                      const int uselowiftrig)
+{
+  // If this is not an ADC hit, assume it is a trigger box hit (it is)
+  const zhit hit(ch, 0, 0, status == 2? normal:
+                       uselowiftrig?edgelow:edgehigh);
+  const zdrawstrip strip = striplinesabs[hit.mod][hit.stp];
+  return makecart((strip.x1+strip.x2)/2,
+                  (strip.y1+strip.y2)/2,
+                  strip.z);
+}
+
+static void lastpos(otc_output_event & out, const OVEventForReco & hits)
+{
+  double farthest = 0;
+  for(unsigned int i = 0; i < hits.nhit; i++){
+    if(hits.Time[i] != hits.Time[hits.nhit-1]) continue;
+
+    for(int s = 0; s < 1+(hits.Status[i] != 2); s++){
+      const cart mc = modcenter(hits.ChNum[i], hits.Status[i], s);
+      const double dist = sqrt(mc.x*mc.x + mc.y*mc.y);
+      if(dist > farthest){
+        farthest = dist;
+        out.lastx = mc.x;
+        out.lasty = mc.y;
+        out.lastz = mc.z;
+      }
+    }
+  }
+}
+
 
 static void do_hits_stuff(otc_output_event & out,
                           const OVEventForReco & hits)
@@ -132,6 +166,8 @@ static void do_hits_stuff(otc_output_event & out,
     }
   }
   out.length = hits.Time[hits.nhit-1] - hits.Time[0] + 1;
+
+  lastpos(out, hits);
 }
 
 /*
