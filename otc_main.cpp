@@ -109,7 +109,7 @@ static cart makecart(const double x, const double y, const double z)
   return a;
 }
 
-static cart modcenter(const unsigned int ch,
+static cart stpcenter(const unsigned int ch,
                       const unsigned short status,
                       const bool uselowiftrig)
 {
@@ -129,29 +129,31 @@ static void lastpos(otc_output_event & __restrict__ out,
 
   unsigned int i = 0;
   while(hits.Time[i] != hits.Time[hits.nhit-1]) i++;
-  i--;
 
+  printf("hi\n");
   for(; i < hits.nhit; i++){
-    const cart mc = modcenter(hits.ChNum[i], hits.Status[i], false);
-    const double dist = sqrt(mc.x*mc.x + mc.y*mc.y);
+    const cart sc = stpcenter(hits.ChNum[i], hits.Status[i], false);
+    const double dist = sqrt(sc.x*sc.x + sc.y*sc.y);
+    printf("%.1f\n", dist);
     if(dist > farthest){
       farthest = dist;
-      out.lastx = mc.x;
-      out.lasty = mc.y;
-      out.lastz = mc.z;
+      out.lastx = sc.x;
+      out.lasty = sc.y;
+      out.lastz = sc.z;
     }
 
     if(hits.Status[i] != 2){
-      const cart mc = modcenter(hits.ChNum[i], hits.Status[i], true);
-      const double dist = sqrt(mc.x*mc.x + mc.y*mc.y);
+      const cart sc = stpcenter(hits.ChNum[i], hits.Status[i], true);
+      const double dist = sqrt(sc.x*sc.x + sc.y*sc.y);
       if(dist > farthest){
         farthest = dist;
-        out.lastx = mc.x;
-        out.lasty = mc.y;
-        out.lastz = mc.z;
+        out.lastx = sc.x;
+        out.lasty = sc.y;
+        out.lastz = sc.z;
       }
     }
   }
+  printf("bye\n");
 }
 
 static void do_hits_stuff(otc_output_event & __restrict__ out,
@@ -169,7 +171,7 @@ static void do_hits_stuff(otc_output_event & __restrict__ out,
   }
   out.length = hits.Time[hits.nhit-1] - hits.Time[0] + 1;
 
-  lastpos(out, hits);
+  if(!out.error) lastpos(out, hits);
 }
 
 static otc_output_event doit(const otc_input_event & inevent)
