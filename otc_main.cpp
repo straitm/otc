@@ -8,7 +8,6 @@ using namespace std;
 #include <signal.h>
 #include <errno.h>
 #include <vector>
-#include "DCRecoOV.hh"
 #include "otc_cont.h"
 #include "otc_root.h"
 #include "otc_progress.cpp"

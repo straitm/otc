@@ -15,7 +15,6 @@ using namespace std;
 #include "TFile.h"
 #include "TError.h"
 #include "TClonesArray.h"
-#include "DCRecoOV.hh" 
 #include "otc_cont.h"
 
 
@@ -196,7 +195,7 @@ static uint64_t root_init_input(const char * const * const filenames,
       _exit(1);
     }
 
-    TFile * inputfile = TFile::Open(fname, "read");
+    TFile * inputfile = new TFile(fname, "read");
     if(!inputfile || inputfile->IsZombie()){
       fprintf(stderr, "%s became a zombie when ROOT tried to read it.\n",fname);
       _exit(1);

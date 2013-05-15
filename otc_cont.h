@@ -1,3 +1,38 @@
+const unsigned int MAXOVHITS = 64*60;
+
+struct OVEventForReco {
+  /// Number of hits in this event
+  unsigned int nhit;
+
+  /// Global channel numbers. In OVHitInfo, this is a DC::ChNum, which
+  /// is a typedef for unsigned int. I'm matching the length here for
+  /// efficiency, but generically it's the caller's responsiblity to
+  /// make sure that the input is translated if it doesn't start out as
+  /// four bytes.
+  unsigned int ChNum[MAXOVHITS];
+
+  /// The type of hit. Equal to 2 for ordinary hits and 4 for edge
+  /// triggers.  See comments on size in ChNum.
+  unsigned short Status[MAXOVHITS];
+
+  /// The integrated ADC counts. As of this writing, these are stored
+  /// in muon.root files as doubles (typedef DC::PE), but this does
+  /// not make sense because they are strictly integer valued. For
+  /// the moment, let's take an efficiency hit to translate them to
+  /// integers with an eye towards having them be integers in the files
+  /// in the future.  This way (new) RecoOV can be written to handle
+  /// integers from now on.
+  int Q[MAXOVHITS];
+
+  /// The number of 16ns clock ticks since the last rollover. The clock
+  /// rolls over every 2^29 ticks. This is currently stored in muon.root
+  /// files as a double, which doesn't make sense, and represented by
+  /// typedef DC::T_ns, which also doesn't make sense, because it does
+  /// not represent nanoseconds, but rather counts of 16ns. As above,
+  /// I'm taking a stand and forcing conversion to integers here.
+  int Time[MAXOVHITS];
+};
+
 /// Largest number of XY overlaps and tracks that RecoOV should return
 /// for one event. Rather than contaminate most of the source here with
 /// DCRecoOV.hh and everything that it depends on (ROOT!), just copy
