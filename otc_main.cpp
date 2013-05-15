@@ -130,11 +130,9 @@ static void lastpos(otc_output_event & __restrict__ out,
   unsigned int i = 0;
   while(hits.Time[i] != hits.Time[hits.nhit-1]) i++;
 
-  printf("hi\n");
   for(; i < hits.nhit; i++){
     const cart sc = stpcenter(hits.ChNum[i], hits.Status[i], false);
     const double dist = sqrt(sc.x*sc.x + sc.y*sc.y);
-    printf("%.1f\n", dist);
     if(dist > farthest){
       farthest = dist;
       out.lastx = sc.x;
@@ -153,7 +151,6 @@ static void lastpos(otc_output_event & __restrict__ out,
       }
     }
   }
-  printf("bye\n");
 }
 
 static void do_hits_stuff(otc_output_event & __restrict__ out,
