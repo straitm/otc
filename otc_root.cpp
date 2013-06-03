@@ -260,6 +260,8 @@ static void root_init_output(const bool clobber,
   recotree->Branch("lasty", &outevent.lasty);
   recotree->Branch("lastz", &outevent.lastz);
   recotree->Branch("error", &outevent.error);
+  recotree->Branch("nhitup", &outevent.nhitup);
+  recotree->Branch("nhitlo", &outevent.nhitlo);
 }
 
 void root_finish()

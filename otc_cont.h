@@ -69,6 +69,9 @@ struct otc_output_event {
   // has length 1.
   int length;
 
+  // Number of hits in the upper and in the lower
+  int nhitup, nhitlo;
+
   // If there was some sort of pathology in the data or the processing
   // thereof.  Currently this means that there were un-time-ordered
   // hits in the input.

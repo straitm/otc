@@ -159,7 +159,13 @@ static void do_hits_stuff(otc_output_event & __restrict__ out,
   // Should not happen for data, but can happen in Monte Carlo
   if(hits.nhit == 0) return;
  
-  for(unsigned int i = 1; i < hits.nhit; i++){
+  for(unsigned int i = 0; i < hits.nhit; i++){
+    const zhit hit(hits.ChNum[i], 0, 0,
+                   hits.Status[i] == 2? normal: edgelow);
+
+    if(hit.mod > 135) out.nhitup++;
+    else              out.nhitlo++;
+
     if(hits.Time[i] < hits.Time[i-1]){
       printf("Hits %d and %d of %d out of order with times %d and %d\n",
              i, i-1, hits.nhit, hits.Time[i-1], hits.Time[i]);
