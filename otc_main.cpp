@@ -153,11 +153,38 @@ static void lastpos(otc_output_event & __restrict__ out,
   }
 }
 
+  /* See comments for is_sync_pulse() in
+DOGS/DCReco/DCOVNuMerger/DCOVNuMerger.cc */
+static bool is_sync_pulse(const OVEventForReco & hits)
+{
+  // Must have some number of trigger boxes each throwing 32 hits
+  if(hits.nhit == 0 || hits.nhit%32 != 0) return false;
+
+  for(unsigned int i = 0; i < hits.nhit; i++){
+    // Must not have any ordinary hits
+    if(hits.Status[i] != 2) return false;
+
+    const int first_tb_channel = 20000;
+
+    // Must have a hit in the highest invalid channel
+    if((hits.ChNum[i]-first_tb_channel)%100 == 31) return true; 
+  }
+
+  // In the extraordinary case that there are a multiple of 32 hits, all
+  // of them are from trigger boxes, but none are in invalid channels,
+  // this must be a highly improbable real event with many edge strip
+  // triggers.
+  return false;
+}
+
 static void do_hits_stuff(otc_output_event & __restrict__ out,
-                          const OVEventForReco & __restrict__ hits)
+                          const OVEventForReco & __restrict__ hits,
+                          const bool hasxy)
 {
   // Should not happen for data, but can happen in Monte Carlo
   if(hits.nhit == 0) return;
+
+  if(is_sync_pulse(hits)) return;
  
   for(unsigned int i = 0; i < hits.nhit; i++){
     const zhit hit(hits.ChNum[i], 0, 0,
@@ -166,12 +193,18 @@ static void do_hits_stuff(otc_output_event & __restrict__ out,
     if(hit.mod > 135) out.nhitup++;
     else              out.nhitlo++;
 
-    if(hits.Time[i] < hits.Time[i-1]){
+    if(i > 0 && hits.Time[i] < hits.Time[i-1]){
       printf("Hits %d and %d of %d out of order with times %d and %d\n",
              i, i-1, hits.nhit, hits.Time[i-1], hits.Time[i]);
       out.error = true;
     }
   }
+
+  // For variables other than nhit{lo,up}, no one is interested in
+  // events without XY overlaps and it saves oodles of disk space not to
+  // store the answers for events without.
+  if(!hasxy) return;
+
   out.length = hits.Time[hits.nhit-1] - hits.Time[0] + 1;
 
   if(!out.error) lastpos(out, hits);
@@ -182,10 +215,7 @@ static otc_output_event doit(const otc_input_event & inevent)
   otc_output_event out;
   memset(&out, 0, sizeof(out));
   
-  // I am only going to use events with XY overlaps and it saves
-  // oodles of disk space not to store the answers for events
-  // without
-  if(inevent.nxy) do_hits_stuff(out, inevent.hits);
+  do_hits_stuff(out, inevent.hits, !!inevent.nxy);
 
   return out;
 }
