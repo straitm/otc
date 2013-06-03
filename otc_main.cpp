@@ -162,7 +162,7 @@ static bool is_sync_pulse(const OVEventForReco & hits)
 
   for(unsigned int i = 0; i < hits.nhit; i++){
     // Must not have any ordinary hits
-    if(hits.Status[i] != 2) return false;
+    if(hits.Status[i] == 2) return false;
 
     const int first_tb_channel = 20000;
 
@@ -237,8 +237,9 @@ int main(int argc, char ** argv)
 {
   signal(SIGSEGV, on_segv_or_bus);
   signal(SIGBUS,  on_segv_or_bus);
-  signal(SIGINT, endearly);
-  signal(SIGHUP, endearly);
+  signal(SIGINT,  endearly);
+  signal(SIGHUP,  endearly);
+  signal(SIGPIPE, endearly);
 
   char * outfile = NULL;
   bool clobber = false; // Whether to overwrite existing output
