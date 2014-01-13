@@ -153,7 +153,7 @@ static void lastpos(otc_output_event & __restrict__ out,
   }
 }
 
-  /* See comments for is_sync_pulse() in
+/* See comments for is_sync_pulse() in
 DOGS/DCReco/DCOVNuMerger/DCOVNuMerger.cc */
 static bool is_sync_pulse(const OVEventForReco & hits)
 {
@@ -190,8 +190,13 @@ static void do_hits_stuff(otc_output_event & __restrict__ out,
     const zhit hit(hits.ChNum[i], 0, 0,
                    hits.Status[i] == 2? normal: edgelow);
 
-    if(hit.mod > 135) out.nhitup++;
-    else              out.nhitlo++;
+    // ZOE will return mod = stp = 0 for bad channel numbers
+    // It will also print a message, we we don't have to.
+    if(hit.mod == 0){       out.error = true;
+      printf("nhit = %d\n", hits.nhit);
+    }
+    else if(hit.mod > 135) out.nhitup++;
+    else                   out.nhitlo++;
 
     if(i > 0 && hits.Time[i] < hits.Time[i-1]){
       printf("Hits %d and %d of %d out of order with times %d and %d\n",
@@ -227,9 +232,12 @@ static void doit_loop(const unsigned int nevent)
 
   // NOTE: Do not attempt to start anywhere but on event zero.
   // For better performance, we don't allow random seeks.
-  for(unsigned int i = 0; i < nevent; i++)
-    write_event(doit(get_event(i))), // never do this
+  for(unsigned int i = 0; i < nevent; i++){
+    otc_output_event out = doit(get_event(i));
+    if(out.error) printf("error event number: %d\n", i);
+    write_event(out);
     progressindicator(i, "OTC");
+  }
   printf("All done working.\n");
 }
 
