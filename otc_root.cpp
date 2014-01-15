@@ -9,6 +9,9 @@ using namespace std;
   #define _GNU_SOURCE // for safe basename()
 #endif
 #include <string.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include <vector>
 #include "TSystem.h"
 #include "TChain.h"

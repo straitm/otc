@@ -6,6 +6,9 @@
 using namespace std;
 
 #include <signal.h>
+#include <string.h>
+#include <stdint.h>
+#include <limits.h>
 #include <errno.h>
 #include <vector>
 #include "otc_cont.h"
@@ -100,26 +103,27 @@ static void endearly(__attribute__((unused)) int signal)
   _exit(1); // See comment above
 }
 
-static cart makecart(const double x, const double y, const double z)
+static cart3 makecart3(const double x, const double y, const double z)
 {
-  cart a;
+  cart3 a;
   a.x = x;
   a.y = y;
   a.z = z;
   return a;
 }
 
-static cart stpcenter(const unsigned int ch,
-                      const unsigned short status,
-                      const bool uselowiftrig)
+static cart3 stpcenter(const unsigned int ch,
+                       const unsigned short status,
+                       const bool uselowiftrig)
 {
   // If this is not an ADC hit, assume it is a trigger box hit (it is)
+  // Just using zhit for geometry, don't bother setting adc/tick/index
   const zhit hit(ch, 0, 0, status == 2? normal:
-                       uselowiftrig?edgelow:edgehigh);
+                       uselowiftrig?edgelow:edgehigh, 0);
   const zdrawstrip strip = striplinesabs[hit.mod][hit.stp];
-  return makecart((strip.x1+strip.x2)/2,
-                  (strip.y1+strip.y2)/2,
-                  strip.z);
+  return makecart3((strip.x1+strip.x2)/2,
+                   (strip.y1+strip.y2)/2,
+                   strip.z);
 }
 
 static void lastpos(otc_output_event & __restrict__ out,
@@ -131,7 +135,7 @@ static void lastpos(otc_output_event & __restrict__ out,
   while(hits.Time[i] != hits.Time[hits.nhit-1]) i++;
 
   for(; i < hits.nhit; i++){
-    const cart sc = stpcenter(hits.ChNum[i], hits.Status[i], false);
+    const cart3 sc = stpcenter(hits.ChNum[i], hits.Status[i], false);
     const double dist = sqrt(sc.x*sc.x + sc.y*sc.y);
     if(dist > farthest){
       farthest = dist;
@@ -141,7 +145,7 @@ static void lastpos(otc_output_event & __restrict__ out,
     }
 
     if(hits.Status[i] != 2){
-      const cart sc = stpcenter(hits.ChNum[i], hits.Status[i], true);
+      const cart3 sc = stpcenter(hits.ChNum[i], hits.Status[i], true);
       const double dist = sqrt(sc.x*sc.x + sc.y*sc.y);
       if(dist > farthest){
         farthest = dist;
@@ -187,8 +191,9 @@ static void do_hits_stuff(otc_output_event & __restrict__ out,
   if(is_sync_pulse(hits)) return;
  
   for(unsigned int i = 0; i < hits.nhit; i++){
+    // Just using zhit for geometry, don't bother setting adc/tick/index
     const zhit hit(hits.ChNum[i], 0, 0,
-                   hits.Status[i] == 2? normal: edgelow);
+                   hits.Status[i] == 2? normal: edgelow, 0);
 
     // ZOE will return mod = stp = 0 for bad channel numbers
     // It will also print a message, we we don't have to.

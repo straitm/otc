@@ -1,6 +1,6 @@
 const unsigned int MAXOVHITS = 64*60;
 
-struct cart{
+struct cart3{
   double x, y, z;
 };
 
